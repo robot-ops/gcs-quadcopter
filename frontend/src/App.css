@@ -1,0 +1,135 @@
+@import "tailwindcss";
+
+:root {
+  --bg-base: #080c0f;
+  --bg-panel: #0d1318;
+  --bg-card: #111820;
+  --bg-card-hover: #151e28;
+  --border: #1e2d3d;
+  --border-bright: #2a3f55;
+  --accent: #00d4ff;
+  --accent-dim: #0099bb;
+  --accent-glow: rgba(0, 212, 255, 0.15);
+  --green: #00ff88;
+  --green-dim: #00cc6a;
+  --yellow: #ffd700;
+  --red: #ff3d4a;
+  --orange: #ff7c2a;
+  --text-primary: #e8f4ff;
+  --text-secondary: #7a9bb5;
+  --text-muted: #3d5a70;
+  --font-mono: 'Share Tech Mono', monospace;
+  --font-display: 'Barlow Condensed', sans-serif;
+  --font-body: 'Barlow', sans-serif;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  background: var(--bg-base);
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  overflow-x: hidden;
+}
+
+/* Scanline overlay */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background: repeating-linear-gradient(
+    0deg,
+    transparent,
+    transparent 2px,
+    rgba(0, 0, 0, 0.03) 2px,
+    rgba(0, 0, 0, 0.03) 4px
+  );
+  pointer-events: none;
+  z-index: 9999;
+}
+
+.font-mono { font-family: var(--font-mono) !important; }
+.font-display { font-family: var(--font-display) !important; }
+
+/* Custom scrollbar */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: var(--bg-base); }
+::-webkit-scrollbar-thumb { background: var(--border-bright); border-radius: 2px; }
+
+/* Glow effects */
+.glow-accent { box-shadow: 0 0 20px var(--accent-glow), 0 0 40px rgba(0,212,255,0.05); }
+.glow-green { box-shadow: 0 0 20px rgba(0,255,136,0.15); }
+.glow-red { box-shadow: 0 0 20px rgba(255,61,74,0.2); }
+
+/* Animated status dot */
+@keyframes pulse-dot {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.8); }
+}
+.pulse-dot { animation: pulse-dot 1.5s ease-in-out infinite; }
+
+/* Corner brackets decoration */
+.bracket-box {
+  position: relative;
+}
+.bracket-box::before, .bracket-box::after {
+  content: '';
+  position: absolute;
+  width: 12px;
+  height: 12px;
+  border-color: var(--accent);
+  border-style: solid;
+}
+.bracket-box::before {
+  top: -1px; left: -1px;
+  border-width: 1px 0 0 1px;
+}
+.bracket-box::after {
+  bottom: -1px; right: -1px;
+  border-width: 0 1px 1px 0;
+}
+
+/* Card hover */
+.card-hover {
+  transition: background 0.2s, border-color 0.2s, box-shadow 0.2s;
+}
+.card-hover:hover {
+  background: var(--bg-card-hover);
+  border-color: var(--border-bright);
+  box-shadow: 0 0 30px rgba(0,212,255,0.08);
+}
+
+/* Gauge animation */
+@keyframes gauge-fill {
+  from { stroke-dashoffset: 283; }
+}
+
+/* Blip animation */
+@keyframes radar-blip {
+  0% { r: 2; opacity: 1; }
+  100% { r: 20; opacity: 0; }
+}
+
+/* Slide in */
+@keyframes slideInLeft {
+  from { transform: translateX(-20px); opacity: 0; }
+  to { transform: translateX(0); opacity: 1; }
+}
+@keyframes fadeInUp {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+.slide-in { animation: slideInLeft 0.3s ease forwards; }
+.fade-in-up { animation: fadeInUp 0.4s ease forwards; }
+
+/* Telemetry value flash */
+@keyframes value-flash {
+  0%, 100% { color: var(--text-primary); }
+  50% { color: var(--accent); }
+}
+.value-update { animation: value-flash 0.3s ease; }
+
+/* Grid noise texture */
+.noise-bg {
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+}

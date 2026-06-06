@@ -1,0 +1,61 @@
+# Root ignore for combined backend/frontend project
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+*.pdb
+*.egg
+*.egg-info/
+.eggs/
+.python-version
+.pytest_cache/
+.python_history
+venv/
+.venv/
+ENV/
+env/
+*.env
+*.env.*
+
+# SQLite database files
+*.db
+*.sqlite3
+
+# FastAPI / Alembic
+*.log
+instance/
+
+# Node
+node_modules/
+pnpm-lock.yaml
+yarn.lock
+package-lock.json
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Vite build output
+/frontend/dist/
+/build/
+
+# Editor directories and files
+.vscode/
+.idea/
+*.suo
+*.ntvs*
+*.njsproj
+*.sln
+
+# OS generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Misc
+*.tmp
+*.swp
+*.swo
+*.bak
+*.orig
