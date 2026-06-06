@@ -1,14 +1,31 @@
 import { createContext, useContext, useState, useEffect } from "react";
 import { loginApi, fetchMe, logoutApi } from "../api/authApi";
 
+const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === "true";
+
+const DEMO_USER = {
+    id: 0,
+    username: "demo",
+    full_name: "Demo Operator",
+    role: "operator",
+    email: "demo@aerolink.local"
+};
+
 const AuthContext = createContext();
 
 export const AuthProvider = ({ children }) => {
-    const [user, setUser] = useState(null);
-    const [accessToken, setAccessToken] = useState(localStorage.getItem("access_token"));
+    const [user, setUser] = useState(DEMO_MODE ? DEMO_USER : null);
+    const [accessToken, setAccessToken] = useState(
+        DEMO_MODE ? "demo-token" : localStorage.getItem("access_token")
+    );
     const [loading, setLoading] = useState(true);
 
     const loadCurrentUser = async () => {
+        if (DEMO_MODE) {
+            setUser(DEMO_USER);
+            return DEMO_USER;
+        }
+
         try {
             const userData = await fetchMe();
             setUser(userData);
@@ -22,6 +39,11 @@ export const AuthProvider = ({ children }) => {
 
     useEffect(() => {
         const verifySession = async () => {
+            if (DEMO_MODE) {
+                setLoading(false);
+                return;
+            }
+
             const token = localStorage.getItem("access_token");
             if (token) {
                 await loadCurrentUser();
@@ -44,6 +66,14 @@ export const AuthProvider = ({ children }) => {
     const login = async (username, password) => {
         setLoading(true);
         try {
+            if (DEMO_MODE) {
+                localStorage.setItem("access_token", "demo-token");
+                localStorage.setItem("refresh_token", "demo-token");
+                setAccessToken("demo-token");
+                setUser(DEMO_USER);
+                return true;
+            }
+
             const credentials = await loginApi({ username, password });
             
             localStorage.setItem("access_token", credentials.access_token);
@@ -69,12 +99,14 @@ export const AuthProvider = ({ children }) => {
     };
 
     const logout = async () => {
-        const refreshToken = localStorage.getItem("refresh_token");
-        if (refreshToken) {
-            try {
-                await logoutApi(refreshToken);
-            } catch (error) {
-                console.error("Logout API call failed:", error);
+        if (!DEMO_MODE) {
+            const refreshToken = localStorage.getItem("refresh_token");
+            if (refreshToken) {
+                try {
+                    await logoutApi(refreshToken);
+                } catch (error) {
+                    console.error("Logout API call failed:", error);
+                }
             }
         }
         localLogout();

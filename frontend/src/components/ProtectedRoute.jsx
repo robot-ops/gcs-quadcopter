@@ -6,6 +6,8 @@ import {
     useAuth
 } from "../context/AuthContext";
 
+const DEMO_MODE = import.meta.env.VITE_DEMO_MODE === "true";
+
 export default function ProtectedRoute({
     children
 }) {
@@ -14,7 +16,7 @@ export default function ProtectedRoute({
         accessToken
     } = useAuth();
 
-    if (!accessToken) {
+    if (!accessToken && !DEMO_MODE) {
 
         return (
             <Navigate
