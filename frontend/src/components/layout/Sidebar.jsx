@@ -25,6 +25,12 @@ export default function Sidebar() {
 
     return (
         <aside className="w-64 glass-panel border-r border-amber-500/15 flex flex-col h-full z-10 p-4">
+            {/* University Logos */}
+            <div className="mb-6 px-2 py-4 border-b border-amber-500/10 flex gap-4 items-center justify-center">
+                <img src="/itb.svg" alt="ITB Logo" className="h-14 w-14 object-contain" />
+                <img src="/undip.svg" alt="UNDIP Logo" className="h-14 w-14 object-contain scale-150 origin-center" />
+            </div>
+
             {/* Header / Logo */}
             <div className="mb-8 px-2 py-4 border-b border-amber-500/10">
                 <Link to="/dashboard" className="flex items-center gap-2">
@@ -95,4 +101,4 @@ export default function Sidebar() {
             </div>
         </aside>
     );
-}
+}
