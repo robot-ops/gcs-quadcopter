@@ -1,8 +1,8 @@
 import { useEffect, useRef, useState } from "react";
 import { useTelemetry } from "../context/TelemetryContext";
 import * as THREE from "three";
-import { OrbitControls } from "three/examples/jsm/controls/OrbitControls.js";
-import { GLTFLoader } from "three/examples/jsm/loaders/GLTFLoader.js";
+import { OrbitControls } from "three/addons/controls/OrbitControls.js";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
 import { Loader2 } from "lucide-react";
 
 export default function DroneTwin() {
@@ -47,30 +47,40 @@ export default function DroneTwin() {
     scene.background = null; // transparent background
 
     // 2. Camera setup
-    const width = containerRef.current.clientWidth;
-    const height = containerRef.current.clientHeight;
-    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 100);
-    camera.position.set(2, 1.5, 3.5);
+    const width = containerRef.current.clientWidth || 400;
+    const height = containerRef.current.clientHeight || 300;
+    const camera = new THREE.PerspectiveCamera(45, width / height, 0.1, 1000);
+    camera.position.set(2.5, 1.8, 4.0);
 
     // 3. Renderer setup
     const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
     renderer.setSize(width, height);
     renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-    renderer.shadowMap.enabled = true;
-    containerRef.current.appendChild(renderer.domElement);
+    renderer.shadowMap.enabled = false;
+
+    // Clear container to avoid duplicate canvas elements in React StrictMode/HMR
+    if (containerRef.current) {
+      containerRef.current.innerHTML = "";
+      containerRef.current.appendChild(renderer.domElement);
+    }
 
     // 4. Lights
-    const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
+    const ambientLight = new THREE.AmbientLight(0xffffff, 2.0);
     scene.add(ambientLight);
 
-    const dirLight = new THREE.DirectionalLight(0xffffff, 1.2);
+    const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.5);
+    hemiLight.position.set(0, 20, 0);
+    scene.add(hemiLight);
+
+    const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
     dirLight.position.set(5, 8, 5);
-    dirLight.castShadow = true;
-    dirLight.shadow.mapSize.width = 1024;
-    dirLight.shadow.mapSize.height = 1024;
     scene.add(dirLight);
 
-    const pointLight = new THREE.PointLight(0xf59e0b, 1.5, 10);
+    const fillLight = new THREE.DirectionalLight(0xffffff, 1.0);
+    fillLight.position.set(-5, -2, -5);
+    scene.add(fillLight);
+
+    const pointLight = new THREE.PointLight(0xf59e0b, 2.0, 10);
     pointLight.position.set(0, 1.5, 0);
     scene.add(pointLight);
 
@@ -79,30 +89,43 @@ export default function DroneTwin() {
     gridHelper.position.y = -0.8;
     scene.add(gridHelper);
 
+
+
     // Shadow catcher invisible plane
     const planeGeom = new THREE.PlaneGeometry(10, 10);
     const planeMat = new THREE.ShadowMaterial({ opacity: 0.15 });
     const planeMesh = new THREE.Mesh(planeGeom, planeMat);
     planeMesh.rotation.x = -Math.PI / 2;
     planeMesh.position.y = -0.8;
-    planeMesh.receiveShadow = true;
     scene.add(planeMesh);
 
     // Parent group for rotation & positioning
     const droneGroup = droneGroupRef.current;
+    while (droneGroup.children.length > 0) {
+      droneGroup.remove(droneGroup.children[0]);
+    }
     droneGroup.position.set(0, -0.8, 0);
     scene.add(droneGroup);
+
+    // Global exposure for debugging
+    window.__THREE = THREE;
+    window.__three_scene = scene;
+    window.__three_droneGroup = droneGroup;
 
     // 5. Controls
     const controls = new OrbitControls(camera, renderer.domElement);
     controls.enableDamping = true;
     controls.dampingFactor = 0.05;
+    controls.target.set(0, -0.4, 0);
     controls.maxPolarAngle = Math.PI / 2 + 0.05; // prevent looking below ground grid
-    controls.minDistance = 1.2;
-    controls.maxDistance = 6.0;
+    controls.minDistance = 1.0;
+    controls.maxDistance = 8.0;
 
     // Helper: Build procedural quadcopter fallback
     const buildProceduralQuadcopter = () => {
+      while (droneGroup.children.length > 0) {
+        droneGroup.remove(droneGroup.children[0]);
+      }
       const bodyGeom = new THREE.SphereGeometry(0.35, 32, 32);
       const bodyMat = new THREE.MeshStandardMaterial({ 
         color: 0x27272a, // zinc-800
@@ -111,8 +134,6 @@ export default function DroneTwin() {
       });
       const bodyMesh = new THREE.Mesh(bodyGeom, bodyMat);
       bodyMesh.scale.set(1.3, 0.45, 1.3);
-      bodyMesh.castShadow = true;
-      bodyMesh.receiveShadow = true;
       droneGroup.add(bodyMesh);
 
       // Amber glass top canopy
@@ -128,7 +149,6 @@ export default function DroneTwin() {
       });
       const canopyMesh = new THREE.Mesh(canopyGeom, canopyMat);
       canopyMesh.position.y = 0.1;
-      canopyMesh.castShadow = true;
       droneGroup.add(canopyMesh);
 
       // Diagonally structured carbon rods (arms)
@@ -149,7 +169,6 @@ export default function DroneTwin() {
         const angle = Math.atan2(dir.z, dir.x);
         armMesh.rotation.z = angle - Math.PI / 2;
         armMesh.position.set((dir.x * armLen) / 4, 0, (dir.z * armLen) / 4);
-        armMesh.castShadow = true;
         droneGroup.add(armMesh);
 
         // Brushless Motor mount cylinders
@@ -157,7 +176,6 @@ export default function DroneTwin() {
         const motorMat = new THREE.MeshStandardMaterial({ color: 0x18181b, metalness: 0.95 });
         const motorMesh = new THREE.Mesh(motorGeom, motorMat);
         motorMesh.position.set((dir.x * armLen) / 2, 0.06, (dir.z * armLen) / 2);
-        motorMesh.castShadow = true;
         droneGroup.add(motorMesh);
 
         // Two-blade Props
@@ -169,31 +187,137 @@ export default function DroneTwin() {
         });
         const propMesh = new THREE.Mesh(propGeom, propMat);
         propMesh.position.set((dir.x * armLen) / 2, 0.16, (dir.z * armLen) / 2);
-        propMesh.castShadow = true;
         droneGroup.add(propMesh);
         propellersRef.current.push(propMesh);
       });
     };
 
-    // 6. Loading Model GLTF / fallback
-    const loader = new GLTFLoader();
-    loader.load(
-      "/assets/quadcopter.glb",
-      (gltf) => {
+    // Helper to process loaded GLTF scene safely
+    const processLoadedModel = (gltf) => {
+      console.log("processLoadedModel started. Node count:", gltf.scene ? gltf.scene.children.length : 0);
+      try {
         const model = gltf.scene;
-        model.scale.set(1.2, 1.2, 1.2);
-        model.traverse(node => {
-          if (node.isMesh) {
-            node.castShadow = true;
-            node.receiveShadow = true;
+
+        // Hide default Blender Cube if present
+        model.traverse((node) => {
+          if (node.name === "Cube" || (node.isMesh && node.name.toLowerCase() === "cube")) {
+            console.log("Hiding cube node:", node.name);
+            node.visible = false;
           }
         });
+
+        // Compute local bounding box BEFORE adding to parent scene
+        model.position.set(0, 0, 0);
+        model.rotation.set(0, 0, 0);
+        model.scale.set(1, 1, 1);
+        model.updateMatrixWorld(true);
+
+        const box = new THREE.Box3().setFromObject(model);
+        const center = new THREE.Vector3();
+        const size = new THREE.Vector3();
+        box.getCenter(center);
+        box.getSize(size);
+        console.log("Computed bounding box:", { min: box.min, max: box.max, center, size });
+
+        // Compute scale factor dynamically (target scale size ~ 2.4 units)
+        const maxDim = Math.max(size.x, size.y, size.z);
+        let scale = 1.0;
+        if (maxDim > 0) {
+          scale = 2.4 / maxDim;
+          model.scale.set(scale, scale, scale);
+        }
+        console.log("Computed scale factor:", scale);
+
+        // Center model so its geometry center is strictly at (0, 0, 0)
+        model.position.set(
+          -center.x * scale,
+          -center.y * scale,
+          -center.z * scale
+        );
+        console.log("Centered model position:", model.position);
+
+        // Helper to convert transparent/physical materials into robust MeshStandardMaterial
+        const createStandardMat = (oldMat) => {
+          let matColor = oldMat && oldMat.color ? oldMat.color.clone() : new THREE.Color(0xd4d4d8);
+          if (matColor.r < 0.1 && matColor.g < 0.1 && matColor.b < 0.1) {
+            matColor = new THREE.Color(0x3f3f46);
+          }
+          return new THREE.MeshStandardMaterial({
+            color: matColor,
+            metalness: 0.5,
+            roughness: 0.3,
+            side: THREE.DoubleSide
+          });
+        };
+
+        // Convert transparent KHR transmission materials for SINGLE & MULTI-MATERIAL meshes
+        propellersRef.current = [];
+        let convertedMaterials = 0;
+        model.traverse((node) => {
+          if (node.isMesh && node.visible !== false) {
+            node.frustumCulled = false; // Disable Frustum Culling so Three.js never discards meshes
+
+            if (node.geometry) {
+              node.geometry.computeBoundingBox();
+              node.geometry.computeBoundingSphere();
+            }
+
+            // Convert transparent physical materials into robust standard materials
+            if (Array.isArray(node.material)) {
+              node.material = node.material.map((mat) => {
+                convertedMaterials++;
+                return createStandardMat(mat);
+              });
+            } else if (node.material) {
+              convertedMaterials++;
+              node.material = createStandardMat(node.material);
+            }
+
+            const lowerName = (node.name || "").toLowerCase();
+            if (
+              lowerName.includes("prop") ||
+              lowerName.includes("rotor") ||
+              lowerName.includes("blade") ||
+              lowerName.includes("fan") ||
+              lowerName.includes("propeller")
+            ) {
+              propellersRef.current.push(node);
+            }
+          }
+        });
+        console.log("Traversed meshes, converted materials:", convertedMaterials, "Propellers found:", propellersRef.current.length);
+
+        // Add model to droneGroup
+        while (droneGroup.children.length > 0) {
+          droneGroup.remove(droneGroup.children[0]);
+        }
         droneGroup.add(model);
+        
+        console.log("Added model and test box to droneGroup. droneGroup children count:", droneGroup.children.length);
         setModelLoading(false);
+      } catch (err) {
+        console.error("Error processing GLTF model, using procedural fallback:", err);
+        buildProceduralQuadcopter();
+        setModelLoading(false);
+      }
+    };
+
+    // 6. Loading Model GLTF / fallback
+    const loader = new GLTFLoader();
+    const modelUrl = `/drone.glb?v=${Date.now()}`;
+    console.log("Initiating loader.load for:", modelUrl);
+
+    loader.load(
+      modelUrl,
+      (gltf) => {
+        console.log("Successfully loaded GLTF file!");
+        processLoadedModel(gltf);
       },
-      undefined,
-      () => {
-        // Fallback procedural layout
+      (xhr) => {
+        console.log(`GLB loading progress: ${(xhr.loaded / xhr.total * 100).toFixed(1)}%`);
+      },
+      (err) => {
+        console.error("Failed to load /drone.glb, rendering procedural quadcopter fallback:", err);
         buildProceduralQuadcopter();
         setModelLoading(false);
       }
@@ -215,13 +339,17 @@ export default function DroneTwin() {
       }
 
       propellersRef.current.forEach((prop, idx) => {
-        const rotationDirection = idx % 2 === 0 ? 1 : -1;
-        prop.rotation.y += spinSpeed * rotationDirection;
+        if (prop && prop.rotation) {
+          const rotationDirection = idx % 2 === 0 ? 1 : -1;
+          prop.rotation.y += spinSpeed * rotationDirection;
+        }
       });
 
       // Smoothly interpolate vertical position Y for height feedback
       const currentY = droneGroup.position.y;
       droneGroup.position.y += (targetYRef.current - currentY) * 0.08;
+
+
 
       controls.update();
       renderer.render(scene, camera);
@@ -233,9 +361,11 @@ export default function DroneTwin() {
       if (!containerRef.current) return;
       const w = containerRef.current.clientWidth;
       const h = containerRef.current.clientHeight;
-      camera.aspect = w / h;
-      camera.updateProjectionMatrix();
-      renderer.setSize(w, h);
+      if (w > 0 && h > 0) {
+        camera.aspect = w / h;
+        camera.updateProjectionMatrix();
+        renderer.setSize(w, h);
+      }
     };
     window.addEventListener("resize", handleResize);
 
