@@ -20,9 +20,9 @@ export default function DashboardLayout() {
                     </div>
                     
                     {/* Footer */}
-                    <div className="mt-8 pt-6 border-t border-amber-500/10 text-center text-sm text-stone-500">
+                    {/* <div className="mt-8 pt-6 border-t border-amber-500/10 text-center text-sm text-stone-500">
                         <p className="font-medium">Developed by <span className="text-amber-600 font-semibold">Redesma Technologies</span></p>
-                    </div>
+                    </div> */}
                 </main>
             </div>
         </div>

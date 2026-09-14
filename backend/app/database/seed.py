@@ -1,4 +1,6 @@
-from app.database.session import SessionLocal
+import app.models  # noqa: F401
+from app.database.base import Base
+from app.database.session import SessionLocal, engine
 
 from app.database.seeds.seed_roles import (
     seed_roles
@@ -47,7 +49,7 @@ def seed_drones(db):
     db.commit()
 
 def run():
-
+    Base.metadata.create_all(bind=engine)
     db = SessionLocal()
 
     try:
