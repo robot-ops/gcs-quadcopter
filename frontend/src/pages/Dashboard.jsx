@@ -28,6 +28,22 @@ export default function Dashboard() {
             });
         }
 
+        // RF Link Lost / Restored detection
+        const rssi = currentTelemetry.rssi;
+        if (rssi === 0 || rssi <= -100) {
+            setEventLogs(prev => {
+                if (prev[0]?.text.includes("RF Link Lost")) return prev;
+                return [{ time: timeStr, text: `RF Link Lost: No ELRS downlink (RSSI: ${rssi} dBm)`, type: "warn" }, ...prev.slice(0, 15)];
+            });
+        } else if (rssi > -100) {
+            setEventLogs(prev => {
+                if (prev[0]?.text.includes("RF Link Lost")) {
+                    return [{ time: timeStr, text: `ELRS Link Restored: ${rssi} dBm`, type: "info" }, ...prev.slice(0, 15)];
+                }
+                return prev;
+            });
+        }
+
         // Drone armed/disarmed state changes
         setEventLogs(prev => {
             const lastLog = prev.find(l => l.text.includes("Drone state:"));
@@ -35,7 +51,8 @@ export default function Dashboard() {
             return [{ time: timeStr, text: `Drone state: Motor state changed to ${droneState}`, type: "info" }, ...prev.slice(0, 15)];
         });
 
-    }, [currentTelemetry?.battery, droneState]);
+    }, [currentTelemetry?.battery, currentTelemetry?.rssi, droneState]);
+
 
     return (
         <div className="space-y-6">

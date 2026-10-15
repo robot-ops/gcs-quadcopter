@@ -271,7 +271,7 @@ export default function MapTracking() {
               </span>
             </div>
             <div className="flex justify-between items-center border-b border-white/5 pb-1.5">
-              <span className="text-stone-400 font-medium">Yaw (Yaw / Yaw):</span>
+              <span className="text-stone-400 font-medium">Heading (Yaw):</span>
               <span className="font-mono font-bold text-amber-400">
                 {Math.round(currentTelemetry?.yaw || 0)}°
               </span>
@@ -297,7 +297,7 @@ export default function MapTracking() {
 
             {/* LoRa details */}
             <div className="flex justify-between items-center pb-1">
-              <span className="text-stone-400 font-medium flex items-center gap-1"><Radio size={13} /> LoRa Signal:</span>
+              <span className="text-stone-400 font-medium flex items-center gap-1"><Radio size={13} /> ELRS Link:</span>
               <span className="font-mono text-stone-300">
                 {currentTelemetry?.rssi || 0} dBm / {(currentTelemetry?.snr || 0).toFixed(1)} dB
               </span>
