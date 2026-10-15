@@ -1,0 +1,86 @@
+name: CI/CD Deploy to VPS
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+jobs:
+  build-frontend:
+    name: Build Frontend Assets
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install Dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build Production Frontend
+        working-directory: frontend
+        run: npm run build
+
+      - name: Upload Build Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+
+  deploy:
+    name: Deploy to VPS
+    needs: build-frontend
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download Frontend Build
+        uses: actions/download-artifact@v4
+        with:
+          name: frontend-dist
+          path: dist/
+
+      - name: Copy Frontend Build to VPS
+        uses: appleboy/scp-action@v0.1.7
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          source: "dist/*"
+          target: "/var/www/uav-quadcopter/frontend"
+          strip_components: 0
+
+      - name: Execute Remote Deployment Commands
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.VPS_HOST }}
+          username: ${{ secrets.VPS_USERNAME }}
+          key: ${{ secrets.VPS_SSH_KEY }}
+          port: ${{ secrets.VPS_PORT || 22 }}
+          script: |
+            set -e
+            echo "🚀 Updating code from git..."
+            cd /var/www/uav-quadcopter
+            git fetch origin main
+            git reset --hard origin/main
+
+            echo "📦 Updating Backend Python environment..."
+            cd /var/www/uav-quadcopter/backend
+            source .venv/bin/activate
+            pip install --no-cache-dir -r requirements.txt
+
+            echo "🗄️ Running database migrations / seed if needed..."
+            python -m app.database.seed || true
+
+            echo "🔄 Restarting Aero-Link Backend Service..."
+            sudo systemctl restart aerolink-backend
+            sudo systemctl reload nginx
+
+            echo "✅ Deployment completed successfully!"

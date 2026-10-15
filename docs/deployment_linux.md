@@ -43,9 +43,9 @@ sudo apt install -y python3-pip python3-venv nodejs npm nginx git
    [Service]
    User=www-data
    WorkingDirectory=/var/www/uav-quadcopter/backend
+   EnvironmentFile=/var/www/uav-quadcopter/backend/.env
    ExecStart=/var/www/uav-quadcopter/backend/.venv/bin/uvicorn main:app --host 127.0.0.1 --port 8000
    Restart=always
-   Environment=DATABASE_URL=sqlite:////var/www/uav-quadcopter/backend/aerolink.db SECRET_KEY=kuncirahasiapembuattokendetailjwt123
 
    [Install]
    WantedBy=multi-user.target

@@ -2,9 +2,11 @@ export const createTelemetrySocket = (
     onMessage
 ) => {
 
-    const socket = new WebSocket(
-        "ws://127.0.0.1:8000/ws/telemetry"
-    );
+    const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+    const defaultWsUrl = `${protocol}//${window.location.host}/ws/telemetry`;
+    const wsUrl = import.meta.env.VITE_WS_URL || defaultWsUrl;
+
+    const socket = new WebSocket(wsUrl);
 
     socket.onmessage = (event) => {
 
