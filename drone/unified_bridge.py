@@ -33,8 +33,8 @@ USERNAME        = "admin"
 PASSWORD        = "admin123"
 DRONE_ID        = 1
 
-DEFAULT_ELRS_PORT  = "COM8"
-DEFAULT_ELRS_BAUD  = 115200
+DEFAULT_ELRS_PORT  = "COM5"
+DEFAULT_ELRS_BAUD  = 460800  # Default AirPort Long-Range 915MHz Baudrate
 DEFAULT_FC_PORT    = "COM6"
 DEFAULT_FC_BAUD    = 115200
 
@@ -55,7 +55,23 @@ CRSF_FRAMETYPE_PARAM_WRITE = 0x2D
 VALID_CRSF_ADDRESSES     = (0x00, 0xC8, 0xEA, 0xEC, 0xEE, 0xEF, 0x18)
 
 MSP_ATTITUDE = 108
+MSP_SET_MOTOR = 214
 HEADER_MSP   = bytes([0x24, 0x4D, 0x3E])
+
+def send_msp_motor(ser_fc, m1=1000, m2=1000, m3=1000, m4=1000):
+    """Kirim MSP_SET_MOTOR (214) langsung ke Flight Controller via USB/UART."""
+    if not ser_fc:
+        return
+    try:
+        payload = struct.pack('<8H', m1, m2, m3, m4, 1000, 1000, 1000, 1000)
+        size = len(payload)
+        crc = size ^ MSP_SET_MOTOR
+        for b in payload:
+            crc ^= b
+        frame = bytearray([0x24, 0x4D, 0x3C, size, MSP_SET_MOTOR]) + payload + bytearray([crc])
+        ser_fc.write(frame)
+    except Exception:
+        pass
 
 # ── CRC ─────────────────────────────────────────────────────────────────────
 def crc8_dvb_s2(data: bytes) -> int:
@@ -363,20 +379,28 @@ def main():
         print(f"\n[COMMAND DARI WEB]: >>> {cmd} <<<")
         if cmd == "ARM":
             channels[4] = 1811; current_state = "ARMED"
-            print("  -> CH5 (AUX1) = 2000us (ARMED)")
+            send_msp_motor(ser_fc, 1080, 1080, 1080, 1080)
+            send_msp_motor(ser_elrs, 1080, 1080, 1080, 1080)
+            print("  -> CH5 (AUX1) = 2000us (ARMED) | MSP Motor Idle = 1080")
         elif cmd == "DISARM":
             channels[4] = 172; channels[2] = 172
             channels[5] = 172; channels[6] = 172
             current_state = "DISARMED"
-            print("  -> CH5 & Throttle = 1000us (DISARMED)")
+            send_msp_motor(ser_fc, 1000, 1000, 1000, 1000)
+            send_msp_motor(ser_elrs, 1000, 1000, 1000, 1000)
+            print("  -> CH5 & Throttle = 1000us (DISARMED) | MSP Motor Stop = 1000")
         elif cmd == "TAKEOFF":
             channels[4] = 1811; channels[5] = 1811; channels[2] = 992
             current_state = "TAKEOFF"
-            print("  -> AUX2 = 2000us & Throttle = 1500us (NAV ALTHOLD)")
+            send_msp_motor(ser_fc, 1200, 1200, 1200, 1200)
+            send_msp_motor(ser_elrs, 1200, 1200, 1200, 1200)
+            print("  -> AUX2 = 2000us & Throttle = 1500us (TAKEOFF) | MSP Motor = 1200")
         elif cmd == "LAND":
             channels[5] = 1811; channels[2] = 172
             current_state = "LANDING"
-            print("  -> Throttle = 1000us (LANDING)")
+            send_msp_motor(ser_fc, 1000, 1000, 1000, 1000)
+            send_msp_motor(ser_elrs, 1000, 1000, 1000, 1000)
+            print("  -> Throttle = 1000us (LANDING) | MSP Motor Stop = 1000")
         elif cmd in ("RTL", "RTH"):
             channels[6] = 1811; current_state = "RTL"
             print("  -> CH7 (AUX3) = 2000us (NAV RTH AKTIF!)")
@@ -513,11 +537,15 @@ def main():
                             ser_elrs.write(pack_crsf_param_write(2, 4))
                         elif slot == 40:
                             ser_elrs.write(pack_crsf_param_write(3, 4))
+                        elif slot in (5, 25):
+                            ser_elrs.write(bytearray([0x24, 0x4D, 0x3C, 0x00, MSP_ATTITUDE, MSP_ATTITUDE]))
+                        elif slot == 15:
+                            ser_elrs.write(bytearray([0x24, 0x4D, 0x3C, 0x00, 109, 109]))
+                        elif slot == 35:
+                            ser_elrs.write(bytearray([0x24, 0x4D, 0x3C, 0x00, 110, 110]))
                         else:
                             ser_elrs.write(pack_crsf_frame(channels))
                         # KRITIS: flush() memaksa FTDI TX selesai transmit dan kembali ke idle (HIGH).
-                        # Tanpa ini, FTDI chip mungkin masih buffer output → pin TX tetap aktif →
-                        # modul half-duplex tidak bisa drive line LOW untuk mengirim telemetri balik.
                         ser_elrs.flush()
                     except serial.SerialTimeoutException:
                         ser_elrs.reset_output_buffer()
@@ -530,14 +558,53 @@ def main():
                     rx_total += len(chunk)
                     buffer.extend(chunk)
 
-                # 3. Parse CRSF frames
-                while len(buffer) >= 4:
+                # 3. Parse Frames (CRSF & MSP Universal)
+                while len(buffer) >= 3:
+                    # --- Check MSP Frame ($M>) ---
+                    if buffer[0] == 0x24 and len(buffer) >= 3 and buffer[1:3] == b'M>':
+                        if len(buffer) < 6:
+                            break
+                        size = buffer[3]
+                        cmd  = buffer[4]
+                        if len(buffer) < 6 + size:
+                            break
+                        crc = size ^ cmd
+                        for b in buffer[5:5+size]:
+                            crc ^= b
+                        if crc == buffer[5+size]:
+                            payload = buffer[5:5+size]
+                            buffer = buffer[6+size:]
+                            dl_count += 1
+                            last_telemetry_time = now
+                            if cmd == MSP_ATTITUDE and len(payload) >= 6:
+                                r_raw, p_raw, y_raw = struct.unpack('<hhh', payload[:6])
+                                telemetry_data["roll"]  = round(r_raw / 10.0, 1)
+                                telemetry_data["pitch"] = round(p_raw / 10.0, 1)
+                                telemetry_data["yaw"]   = round(float(y_raw), 1)
+                            elif cmd == 109 and len(payload) >= 4:
+                                alt_cm = struct.unpack('<i', payload[:4])[0]
+                                telemetry_data["altitude"] = round(max(0.0, alt_cm / 100.0), 2)
+                            elif cmd == 110 and len(payload) >= 1:
+                                vbat = payload[0] / 10.0
+                                pct = min(100.0, max(0.0, round(((vbat - 13.2) / (16.8 - 13.2)) * 100))) if vbat > 4.5 else 0.0
+                                telemetry_data["battery"] = pct
+                            continue
+                        else:
+                            buffer.pop(0)
+                            continue
+
+                    # --- Check CRSF Frame ---
                     if buffer[0] not in VALID_CRSF_ADDRESSES:
-                        buffer.pop(0); continue
+                        buffer.pop(0)
+                        continue
+
+                    if len(buffer) < 4:
+                        break
 
                     frame_len = buffer[1]
                     if frame_len < 2 or frame_len > 64:
-                        buffer.pop(0); continue
+                        buffer.pop(0)
+                        continue
 
                     total_len = frame_len + 2
                     if len(buffer) < total_len:
@@ -549,7 +616,8 @@ def main():
                         crc_errs += 1
                         if frame_len >= 4:
                             print(f"\n[CRC-ERR #{crc_errs}] Addr:0x{frame[0]:02X} Len:{frame_len} Type:0x{frame[2]:02X} GotCRC:0x{frame[-1]:02X} CalcCRC:0x{calc_crc:02X} | Hex: {frame.hex()}")
-                        buffer.pop(0); continue
+                        buffer.pop(0)
+                        continue
 
                     buffer = buffer[total_len:]
                     ftype   = frame[2]
