@@ -9,49 +9,24 @@ import DroneTwin from "../components/DroneTwin";
 import { Terminal, Cpu } from "lucide-react";
 
 export default function Dashboard() {
-    const { currentTelemetry, droneState } = useTelemetry();
+    const { currentTelemetry, droneState, eventLogs, addEventLog } = useTelemetry();
     const [activeView, setActiveView] = useState("3d");
-    const [eventLogs, setEventLogs] = useState([
-        { time: new Date(Date.now() - 10000).toLocaleTimeString(), text: "GCS Initialized. Waiting for connection...", type: "system" }
-    ]);
 
     // Reactively add logs based on telemetry change
     useEffect(() => {
         if (!currentTelemetry) return;
-        const timeStr = new Date().toLocaleTimeString();
 
         // Battery warnings
         if (currentTelemetry.battery < 20) {
-            setEventLogs(prev => {
-                if (prev[0]?.text.includes("Battery Critical")) return prev;
-                return [{ time: timeStr, text: `Battery Critical: ${currentTelemetry.battery}%`, type: "warn" }, ...prev.slice(0, 15)];
-            });
+            addEventLog(`Battery Critical: ${currentTelemetry.battery}%`, "warn");
         }
 
         // RF Link Lost / Restored detection
         const rssi = currentTelemetry.rssi;
         if (rssi === 0 || rssi <= -100) {
-            setEventLogs(prev => {
-                if (prev[0]?.text.includes("RF Link Lost")) return prev;
-                return [{ time: timeStr, text: `RF Link Lost: No ELRS downlink (RSSI: ${rssi} dBm)`, type: "warn" }, ...prev.slice(0, 15)];
-            });
-        } else if (rssi > -100) {
-            setEventLogs(prev => {
-                if (prev[0]?.text.includes("RF Link Lost")) {
-                    return [{ time: timeStr, text: `ELRS Link Restored: ${rssi} dBm`, type: "info" }, ...prev.slice(0, 15)];
-                }
-                return prev;
-            });
+            addEventLog(`RF Link Lost: No Telemetry downlink (RSSI: ${rssi} dBm)`, "warn");
         }
-
-        // Drone armed/disarmed state changes
-        setEventLogs(prev => {
-            const lastLog = prev.find(l => l.text.includes("Drone state:"));
-            if (lastLog && lastLog.text.includes(droneState)) return prev;
-            return [{ time: timeStr, text: `Drone state: Motor state changed to ${droneState}`, type: "info" }, ...prev.slice(0, 15)];
-        });
-
-    }, [currentTelemetry?.battery, currentTelemetry?.rssi, droneState]);
+    }, [currentTelemetry?.battery, currentTelemetry?.rssi]);
 
 
     return (

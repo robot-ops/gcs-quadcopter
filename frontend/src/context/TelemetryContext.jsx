@@ -41,6 +41,17 @@ export function TelemetryProvider({ children }) {
     { id: 2, date: "2026-06-02", duration: "8 mins", max_alt: "15 m", avg_speed: "3.2 m/s", status: "Completed" },
     { id: 3, date: "2026-05-30", duration: "25 mins", max_alt: "50 m", avg_speed: "5.8 m/s", status: "Aborted" }
   ]);
+  const [eventLogs, setEventLogs] = useState([
+    { time: new Date().toLocaleTimeString(), text: "GCS Initialized. Waiting for telemetry stream...", type: "system" }
+  ]);
+
+  const addEventLog = (text, type = "info") => {
+    const timeStr = new Date().toLocaleTimeString();
+    setEventLogs(prev => {
+      if (prev[0]?.text === text) return prev;
+      return [{ time: timeStr, text, type }, ...prev.slice(0, 29)];
+    });
+  };
 
   // Fetch initial telemetry and history when switching to live mode
   useEffect(() => {
@@ -97,8 +108,17 @@ export function TelemetryProvider({ children }) {
                 const next = [...prev, tel];
                 return next.slice(-60);
               });
+            } else if (msg.event === "event_log" && msg.data) {
+              const { text, type, drone_state } = msg.data;
+              if (text) {
+                addEventLog(text, type || "info");
+              }
+              if (drone_state) {
+                setDroneState(drone_state);
+              }
             } else if (msg.event === "command" && msg.data) {
               const cmd = msg.data.command;
+              addEventLog(`[UPLINK] Command sent to UAV: ${cmd}`, "system");
               if (cmd === "ARM") {
                 setDroneState("ARMED");
               } else if (cmd === "DISARM") {
@@ -264,6 +284,7 @@ export function TelemetryProvider({ children }) {
 
   const commandDrone = (cmd) => {
     console.log(`Drone command sent: ${cmd}`);
+    addEventLog(`[GCS] Transmitting command: ${cmd}...`, "system");
     if (useSimulation) {
       if (cmd === "ARM") {
         setDroneState("ARMED");
@@ -334,7 +355,9 @@ export function TelemetryProvider({ children }) {
       clearWaypoints,
       commandDrone,
       flightLogs,
-      setFlightLogs
+      setFlightLogs,
+      eventLogs,
+      addEventLog
     }}>
       {children}
     </TelemetryContext.Provider>

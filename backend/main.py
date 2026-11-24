@@ -45,7 +45,7 @@ async def telemetry_ws(websocket: WebSocket):
             data = await websocket.receive_text()
             try:
                 msg = json.loads(data)
-                if msg.get("event") == "command":
+                if msg.get("event") in ("command", "event_log"):
                     await manager.broadcast(msg)
             except Exception:
                 pass
