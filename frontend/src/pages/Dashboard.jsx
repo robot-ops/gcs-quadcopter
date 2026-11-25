@@ -9,7 +9,7 @@ import DroneTwin from "../components/DroneTwin";
 import { Terminal, Cpu } from "lucide-react";
 
 export default function Dashboard() {
-    const { currentTelemetry, droneState, eventLogs, addEventLog } = useTelemetry();
+    const { currentTelemetry, droneState, eventLogs, addEventLog, settings } = useTelemetry();
     const [activeView, setActiveView] = useState("3d");
 
     // Reactively add logs based on telemetry change
@@ -17,16 +17,18 @@ export default function Dashboard() {
         if (!currentTelemetry) return;
 
         // Battery warnings
-        if (currentTelemetry.battery < 20) {
-            addEventLog(`Battery Critical: ${currentTelemetry.battery}%`, "warn");
+        const batLimit = settings?.batteryThreshold ?? 20;
+        if (currentTelemetry.battery < batLimit) {
+            addEventLog(`Battery Critical: ${currentTelemetry.battery}% (< ${batLimit}%)`, "warn");
         }
 
         // RF Link Lost / Restored detection
         const rssi = currentTelemetry.rssi;
-        if (rssi === 0 || rssi <= -100) {
-            addEventLog(`RF Link Lost: No Telemetry downlink (RSSI: ${rssi} dBm)`, "warn");
+        const rssiLimit = settings?.rssiThreshold ?? -90;
+        if (rssi === 0 || rssi <= rssiLimit) {
+            addEventLog(`RF Link Weak/Lost: RSSI ${rssi} dBm (Threshold: ${rssiLimit} dBm)`, "warn");
         }
-    }, [currentTelemetry?.battery, currentTelemetry?.rssi]);
+    }, [currentTelemetry?.battery, currentTelemetry?.rssi, settings?.batteryThreshold, settings?.rssiThreshold]);
 
 
     return (

@@ -2,10 +2,10 @@ import { useTelemetry } from "../context/TelemetryContext";
 import { FileText, Calendar, Clock, Trophy, Trash2, Download } from "lucide-react";
 
 export default function FlightLogs() {
-    const { flightLogs, setFlightLogs } = useTelemetry();
+    const { flightLogs, deleteFlightLog } = useTelemetry();
 
     const handleDeleteLog = (id) => {
-        setFlightLogs(prev => prev.filter(log => log.id !== id));
+        deleteFlightLog(id);
     };
 
     const handleDownloadLog = (log) => {

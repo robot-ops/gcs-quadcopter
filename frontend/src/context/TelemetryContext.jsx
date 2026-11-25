@@ -1,7 +1,42 @@
 import { createContext, useContext, useState, useEffect, useRef } from "react";
-import { getLatestTelemetry, getTelemetryHistory } from "../api/telemetryApi";
+import { getLatestTelemetry, getTelemetryHistory, uploadMissionApi, getLatestMissionApi, getFlightLogsApi, deleteFlightLogApi } from "../api/telemetryApi";
 
 const TelemetryContext = createContext(null);
+
+const DEFAULT_SETTINGS = {
+  wsUrl: import.meta.env.VITE_WS_URL || (import.meta.env.DEV
+    ? "ws://127.0.0.1:8000/ws/telemetry"
+    : `${window.location.protocol === "https:" ? "wss" : "ws"}://${window.location.host}/ws/telemetry`),
+  batteryThreshold: 20,
+  rssiThreshold: -90,
+  rollOffset: 0.0,
+  pitchOffset: 0.0
+};
+
+function loadSavedSettings() {
+  try {
+    const raw = localStorage.getItem("aerolink_gcs_settings");
+    return raw ? { ...DEFAULT_SETTINGS, ...JSON.parse(raw) } : DEFAULT_SETTINGS;
+  } catch {
+    return DEFAULT_SETTINGS;
+  }
+}
+
+function formatDbFlightLog(log) {
+  const start = new Date(log.start_time);
+  const end = new Date(log.end_time);
+  const diffSec = Math.max(1, Math.round((end - start) / 1000));
+  const mins = Math.floor(diffSec / 60);
+  const secs = diffSec % 60;
+  return {
+    id: log.id,
+    date: start.toISOString().split("T")[0],
+    duration: mins > 0 ? `${mins}m ${secs}s` : `${secs}s`,
+    max_alt: `${(log.max_altitude || 0).toFixed(1)} m`,
+    avg_speed: `${(log.avg_speed || 0).toFixed(1)} m/s`,
+    status: "Completed"
+  };
+}
 
 const DEFAULT_TELEMETRY = {
   drone_id: 1,
@@ -32,15 +67,12 @@ export function TelemetryProvider({ children }) {
     { lat: -6.2078, lng: 106.8446, seq: 4, alt: 15.0 }
   ]);
   const [targetWaypointIndex, setTargetWaypointIndex] = useState(0);
+  const [settings, setSettings] = useState(loadSavedSettings);
   const socketRef = useRef(null);
   const simulatedTimerRef = useRef(null);
 
   // Flight log collection for the flight log page
-  const [flightLogs, setFlightLogs] = useState([
-    { id: 1, date: "2026-06-03", duration: "12 mins", max_alt: "32 m", avg_speed: "4.5 m/s", status: "Completed" },
-    { id: 2, date: "2026-06-02", duration: "8 mins", max_alt: "15 m", avg_speed: "3.2 m/s", status: "Completed" },
-    { id: 3, date: "2026-05-30", duration: "25 mins", max_alt: "50 m", avg_speed: "5.8 m/s", status: "Aborted" }
-  ]);
+  const [flightLogs, setFlightLogs] = useState([]);
   const [eventLogs, setEventLogs] = useState([
     { time: new Date().toLocaleTimeString(), text: "GCS Initialized. Waiting for telemetry stream...", type: "system" }
   ]);
@@ -67,6 +99,19 @@ export function TelemetryProvider({ children }) {
         if (history && history.length > 0) {
           setTelemetryHistory(history.reverse());
         }
+        const savedMission = await getLatestMissionApi(activeDroneId);
+        if (savedMission && savedMission.waypoints && savedMission.waypoints.length > 0) {
+          setWaypoints(savedMission.waypoints.map((w, i) => ({
+            seq: w.seq || i + 1,
+            lat: w.latitude,
+            lng: w.longitude,
+            alt: w.altitude
+          })));
+        }
+        const logs = await getFlightLogsApi(activeDroneId, 50);
+        if (logs && Array.isArray(logs)) {
+          setFlightLogs(logs.map(formatDbFlightLog));
+        }
       } catch (err) {
         console.error("Failed to fetch initial telemetry data:", err);
       }
@@ -79,7 +124,7 @@ export function TelemetryProvider({ children }) {
   useEffect(() => {
     let isDisposed = false;
     let reconnectTimer = null;
-    const wsUrl = "ws://127.0.0.1:8000/ws/telemetry";
+    const wsUrl = settings.wsUrl || DEFAULT_SETTINGS.wsUrl;
 
     function connect() {
       if (isDisposed || useSimulation) return;
@@ -101,6 +146,8 @@ export function TelemetryProvider({ children }) {
             if (msg.event === "telemetry" && msg.data) {
               const tel = {
                 ...msg.data,
+                roll: parseFloat(((msg.data.roll || 0) + (settings.rollOffset || 0)).toFixed(1)),
+                pitch: parseFloat(((msg.data.pitch || 0) + (settings.pitchOffset || 0)).toFixed(1)),
                 created_at: msg.data.created_at || new Date().toISOString()
               };
               setCurrentTelemetry(tel);
@@ -112,6 +159,11 @@ export function TelemetryProvider({ children }) {
               const { text, type, drone_state } = msg.data;
               if (text) {
                 addEventLog(text, type || "info");
+                if (text.includes("Flight session saved")) {
+                  getFlightLogsApi(activeDroneId, 50)
+                    .then(logs => logs && setFlightLogs(logs.map(formatDbFlightLog)))
+                    .catch(() => {});
+                }
               }
               if (drone_state) {
                 setDroneState(drone_state);
@@ -125,7 +177,9 @@ export function TelemetryProvider({ children }) {
                 setDroneState("DISARMED");
               } else if (cmd === "TAKEOFF") {
                 setDroneState("TAKEOFF");
-              } else if (cmd === "LAND") {
+              } else if (cmd === "AUTO" || cmd === "START_MISSION") {
+                setDroneState("FLYING");
+              } else if (cmd === "LAND" || cmd === "RTL") {
                 setDroneState("LANDING");
               }
             }
@@ -168,7 +222,7 @@ export function TelemetryProvider({ children }) {
         socketRef.current = null;
       }
     };
-  }, [useSimulation]);
+  }, [useSimulation, settings.wsUrl, settings.rollOffset, settings.pitchOffset, activeDroneId]);
 
 
 
@@ -290,11 +344,11 @@ export function TelemetryProvider({ children }) {
         setDroneState("ARMED");
       } else if (cmd === "DISARM") {
         setDroneState("DISARMED");
-      } else if (cmd === "TAKEOFF") {
+      } else if (cmd === "TAKEOFF" || cmd === "AUTO" || cmd === "START_MISSION") {
         if (droneState === "ARMED" || droneState === "DISARMED") {
           setDroneState("TAKEOFF");
         }
-      } else if (cmd === "LAND") {
+      } else if (cmd === "LAND" || cmd === "RTL") {
         if (droneState === "FLYING" || droneState === "TAKEOFF") {
           setDroneState("LANDING");
         }
@@ -338,6 +392,56 @@ export function TelemetryProvider({ children }) {
     setTargetWaypointIndex(0);
   };
 
+  const uploadMissionToDrone = async () => {
+    if (waypoints.length === 0) {
+      addEventLog("[GCS] Cannot upload empty waypoint list.", "warn");
+      return false;
+    }
+    addEventLog(`[GCS] Saving & uploading ${waypoints.length} waypoints to Pixhawk...`, "system");
+
+    if (useSimulation) {
+      addEventLog(`[SIM] ${waypoints.length} waypoints loaded into simulator queue.`, "info");
+      return true;
+    }
+
+    try {
+      await uploadMissionApi(activeDroneId, waypoints);
+      return true;
+    } catch (err) {
+      console.error("REST mission upload failed, falling back to direct WebSocket:", err);
+      if (socketRef.current && socketRef.current.readyState === WebSocket.OPEN) {
+        socketRef.current.send(JSON.stringify({
+          event: "upload_mission",
+          data: { drone_id: activeDroneId, waypoints }
+        }));
+        return true;
+      }
+      addEventLog("[GCS] Failed to upload mission: Backend/WebSocket unreachable.", "warn");
+      return false;
+    }
+  };
+
+  const updateSettings = (newPartial) => {
+    setSettings(prev => {
+      const next = { ...prev, ...newPartial };
+      try {
+        localStorage.setItem("aerolink_gcs_settings", JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+  };
+
+  const deleteFlightLog = async (id) => {
+    setFlightLogs(prev => prev.filter(log => log.id !== id));
+    if (!useSimulation) {
+      try {
+        await deleteFlightLogApi(id);
+      } catch (err) {
+        console.error("Failed to delete flight log from DB:", err);
+      }
+    }
+  };
+
   return (
     <TelemetryContext.Provider value={{
       currentTelemetry,
@@ -353,9 +457,13 @@ export function TelemetryProvider({ children }) {
       removeWaypoint,
       updateWaypointAltitude,
       clearWaypoints,
+      uploadMissionToDrone,
       commandDrone,
       flightLogs,
       setFlightLogs,
+      deleteFlightLog,
+      settings,
+      updateSettings,
       eventLogs,
       addEventLog
     }}>

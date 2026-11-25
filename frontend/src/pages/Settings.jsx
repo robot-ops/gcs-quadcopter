@@ -1,18 +1,25 @@
 import { useState } from "react";
 import { useTelemetry } from "../context/TelemetryContext";
-import { Sliders, Server, ShieldAlert, CheckCircle2 } from "lucide-react";
+import { Sliders, Server, ShieldAlert, CheckCircle2, Compass } from "lucide-react";
 
 export default function Settings() {
-    const { useSimulation, setUseSimulation } = useTelemetry();
-    const [wsUrl, setWsUrl] = useState("ws://127.0.0.1:8000/ws/telemetry");
-    const [batteryThreshold, setBatteryThreshold] = useState(20);
-    const [rssiThreshold, setRssiThreshold] = useState(-90);
-    const [rollOffset, setRollOffset] = useState(0.0);
-    const [pitchOffset, setPitchOffset] = useState(0.0);
+    const { useSimulation, setUseSimulation, settings, updateSettings, commandDrone } = useTelemetry();
+    const [wsUrl, setWsUrl] = useState(settings.wsUrl);
+    const [batteryThreshold, setBatteryThreshold] = useState(settings.batteryThreshold);
+    const [rssiThreshold, setRssiThreshold] = useState(settings.rssiThreshold);
+    const [rollOffset, setRollOffset] = useState(settings.rollOffset);
+    const [pitchOffset, setPitchOffset] = useState(settings.pitchOffset);
     const [saved, setSaved] = useState(false);
 
     const handleSave = (e) => {
         e.preventDefault();
+        updateSettings({
+            wsUrl,
+            batteryThreshold,
+            rssiThreshold,
+            rollOffset,
+            pitchOffset
+        });
         setSaved(true);
         setTimeout(() => setSaved(false), 3000);
     };
@@ -115,12 +122,27 @@ export default function Settings() {
                         />
                     </div>
                     
-                    <button 
-                        onClick={() => { setRollOffset(0); setPitchOffset(0); }}
-                        className="glass-btn-secondary px-3 py-1.5 text-[10px] uppercase font-bold display-font tracking-wider cursor-pointer"
-                    >
-                        Reset IMU Offsets
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                        <button 
+                            type="button"
+                            onClick={() => {
+                                setRollOffset(0);
+                                setPitchOffset(0);
+                                updateSettings({ rollOffset: 0, pitchOffset: 0 });
+                            }}
+                            className="glass-btn-secondary px-3 py-1.5 text-[10px] uppercase font-bold display-font tracking-wider cursor-pointer"
+                        >
+                            Reset IMU Offsets
+                        </button>
+                        <button 
+                            type="button"
+                            onClick={() => commandDrone("CALIBRATE_GYRO")}
+                            className="glass-btn px-3 py-1.5 text-[10px] uppercase font-bold display-font tracking-wider cursor-pointer flex items-center gap-1"
+                        >
+                            <Compass size={12} />
+                            Calibrate Pixhawk Gyro
+                        </button>
+                    </div>
                 </div>
 
                 {/* Network & API Endpoints */}

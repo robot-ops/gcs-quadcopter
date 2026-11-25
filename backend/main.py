@@ -10,6 +10,8 @@ from app.api.v1.auth import (router as auth_router)
 from app.api.v1.admin import (router as admin_router)
 from app.api.v1.operator import (router as operator_router)
 from app.api.v1.telemetry import (router as telemetry_router)
+from app.api.v1.mission import (router as mission_router)
+from app.api.v1.flight_log import (router as flight_log_router)
 
 app = FastAPI(
     title="Digital Twin Quadcopter API",
@@ -28,6 +30,8 @@ app.include_router(auth_router)
 app.include_router(admin_router)
 app.include_router(operator_router)
 app.include_router(telemetry_router)
+app.include_router(mission_router)
+app.include_router(flight_log_router)
 
 
 @app.get("/")
@@ -45,7 +49,7 @@ async def telemetry_ws(websocket: WebSocket):
             data = await websocket.receive_text()
             try:
                 msg = json.loads(data)
-                if msg.get("event") in ("command", "event_log"):
+                if msg.get("event") in ("command", "event_log", "upload_mission"):
                     await manager.broadcast(msg)
             except Exception:
                 pass

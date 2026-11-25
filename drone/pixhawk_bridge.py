@@ -12,7 +12,9 @@ import argparse
 import sys
 import threading
 import json
+import os
 import asyncio
+from datetime import datetime, timezone
 import requests
 import websockets
 from pymavlink import mavutil
@@ -21,8 +23,8 @@ from pymavlink import mavutil
 DEFAULT_PORT = "COM8"
 DEFAULT_BAUD = 57600
 DEFAULT_BACKEND_URL = "http://127.0.0.1:8000"
-USERNAME = "admin"
-PASSWORD = "admin123"
+USERNAME = os.getenv("GCS_USERNAME", "admin")
+PASSWORD = os.getenv("GCS_PASSWORD", "admin123")
 DRONE_ID = 1
 
 # Shared state
@@ -32,7 +34,13 @@ shared_context = {
     "backend_url": DEFAULT_BACKEND_URL,
     "running": True,
     "armed": False,
-    "flight_mode": "STABILIZE"
+    "flight_mode": "STABILIZE",
+    "uploading_mission": False,
+    "pending_waypoints": [],
+    "flight_start_time": None,
+    "max_alt": 0.0,
+    "speed_sum": 0.0,
+    "speed_count": 0
 }
 
 # Queue untuk mengirim event log ke frontend lewat WebSocket
@@ -172,6 +180,33 @@ def arm_disarm(master, arm: bool, force: bool = True):
     )
     print(f"[+] Command {'ARM (Force=21196)' if arm else 'DISARM'} dikirim ke Pixhawk.")
 
+def start_mission_upload(master, waypoints):
+    """
+    Memulai protokol MAVLink Mission Upload secara asynchronous.
+    Respon MISSION_REQUEST_INT & MISSION_ACK ditangani oleh mavlink_reader_thread.
+    """
+    if not waypoints:
+        print("[!] Daftar waypoint kosong. Mengabaikan upload.")
+        return
+    shared_context["pending_waypoints"] = waypoints
+    shared_context["uploading_mission"] = True
+    total_count = len(waypoints) + 1  # Index 0 adalah Home Location / Takeoff
+    print(f"\n[MISSION] Memulai upload {len(waypoints)} waypoint ke Pixhawk (Total item: {total_count})...")
+    queue_web_log(f"[GCS] Uploading {len(waypoints)} waypoints to Pixhawk EEPROM...", "system")
+    try:
+        master.mav.mission_clear_all_send(master.target_system, master.target_component)
+        time.sleep(0.05)
+        master.mav.mission_count_send(
+            master.target_system,
+            master.target_component,
+            total_count,
+            mavutil.mavlink.MAV_MISSION_TYPE_MISSION
+        )
+    except Exception as e:
+        shared_context["uploading_mission"] = False
+        print(f"[!] Error inisiasi upload waypoint: {e}")
+        queue_web_log(f"[GCS] Mission Upload Error: {e}", "warn")
+
 def execute_command(master, cmd):
     cmd = cmd.strip().upper()
     print(f"\n[COMMAND DARI GCS]: >>> {cmd} <<<")
@@ -193,17 +228,20 @@ def execute_command(master, cmd):
             2.0  # Takeoff altitude 2 meter
         )
         print("[+] Command NAV_TAKEOFF (2m) dikirim.")
+    elif cmd in ("START_MISSION", "AUTO"):
+        set_arducopter_mode(master, "AUTO")
+        queue_web_log("[PIXHAWK] Auto Mission Started (Mode: AUTO)", "info", "FLYING")
     elif cmd == "LAND":
         set_arducopter_mode(master, "LAND")
     elif cmd in ("RTL", "RTH"):
         set_arducopter_mode(master, "RTL")
-    elif cmd in ("STABILIZE", "LOITER", "ALT_HOLD", "AUTO", "POSHOLD"):
+    elif cmd in ("STABILIZE", "LOITER", "ALT_HOLD", "POSHOLD", "GUIDED"):
         set_arducopter_mode(master, cmd)
     else:
         print(f"[!] Command tidak dikenal: {cmd}")
 
 async def websocket_command_task(master, backend_url):
-    ws_url = backend_url.replace("http://", "ws://") + "/ws/telemetry"
+    ws_url = backend_url.rstrip("/").replace("https://", "wss://").replace("http://", "ws://") + "/ws/telemetry"
     while shared_context["running"]:
         try:
             print(f"[WS] Menghubungkan ke backend command channel: {ws_url}...")
@@ -234,6 +272,11 @@ async def websocket_command_task(master, backend_url):
                                 cmd = cmd_data.get("command")
                                 if cmd:
                                     execute_command(master, cmd)
+                            elif msg.get("event") == "upload_mission":
+                                mission_data = msg.get("data", {})
+                                wps = mission_data.get("waypoints", [])
+                                if wps:
+                                    start_mission_upload(master, wps)
                         except Exception as e:
                             print(f"[WS] Error parsing: {e}")
                 finally:
@@ -256,7 +299,55 @@ def mavlink_reader_thread(master):
 
             msg_type = msg.get_type()
 
-            if msg_type == 'HEARTBEAT':
+            if msg_type in ('MISSION_REQUEST', 'MISSION_REQUEST_INT'):
+                if shared_context.get("uploading_mission") and shared_context.get("pending_waypoints"):
+                    seq = msg.seq
+                    wps = shared_context["pending_waypoints"]
+                    total_count = len(wps) + 1
+                    if seq == 0:
+                        lat0 = telemetry_data["latitude"] if telemetry_data["latitude"] != 0.0 else wps[0].get("lat", 0.0)
+                        lon0 = telemetry_data["longitude"] if telemetry_data["longitude"] != 0.0 else wps[0].get("lng", 0.0)
+                        master.mav.mission_item_int_send(
+                            master.target_system,
+                            master.target_component,
+                            0,
+                            mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+                            mavutil.mavlink.MAV_CMD_NAV_TAKEOFF,
+                            1, 1, 0, 0, 0, 0,
+                            int(lat0 * 1e7),
+                            int(lon0 * 1e7),
+                            float(wps[0].get("alt", 15.0)),
+                            mavutil.mavlink.MAV_MISSION_TYPE_MISSION
+                        )
+                        print(f"  -> Terkirim WP #0 (Home/Takeoff): Alt {wps[0].get('alt', 15.0)}m")
+                    elif seq < total_count:
+                        wp = wps[seq - 1]
+                        master.mav.mission_item_int_send(
+                            master.target_system,
+                            master.target_component,
+                            seq,
+                            mavutil.mavlink.MAV_FRAME_GLOBAL_RELATIVE_ALT_INT,
+                            mavutil.mavlink.MAV_CMD_NAV_WAYPOINT,
+                            0, 1, 0, 2.0, 0, 0,
+                            int(wp["lat"] * 1e7),
+                            int(wp["lng"] * 1e7),
+                            float(wp.get("alt", 15.0)),
+                            mavutil.mavlink.MAV_MISSION_TYPE_MISSION
+                        )
+                        print(f"  -> Terkirim WP #{seq}: Lat {wp['lat']:.6f}, Lng {wp['lng']:.6f}, Alt {wp.get('alt', 15.0)}m")
+
+            elif msg_type == 'MISSION_ACK':
+                if shared_context.get("uploading_mission"):
+                    shared_context["uploading_mission"] = False
+                    wps = shared_context.get("pending_waypoints", [])
+                    if msg.type == mavutil.mavlink.MAV_MISSION_ACCEPTED:
+                        print(f"\n[+] ✅ SEMUA {len(wps)} WAYPOINT BERHASIL DISIMPAN KE PIXHAWK!")
+                        queue_web_log(f"[PIXHAWK] Mission Loaded Successfully ({len(wps)} Waypoints)", "info")
+                    else:
+                        print(f"\n[!] ❌ Gagal upload mission: MAV_MISSION_ACK type = {msg.type}")
+                        queue_web_log(f"[PIXHAWK] Mission Upload Failed (ACK: {msg.type})", "warn")
+
+            elif msg_type == 'HEARTBEAT':
                 if msg.autopilot == mavutil.mavlink.MAV_AUTOPILOT_INVALID:
                     continue
                 # Status armed / disarmed
@@ -269,6 +360,34 @@ def mavlink_reader_thread(master):
                         "info" if is_armed else "warn",
                         state_str
                     )
+                    if is_armed:
+                        shared_context["flight_start_time"] = datetime.now(timezone.utc)
+                        shared_context["max_alt"] = telemetry_data["altitude"]
+                        shared_context["speed_sum"] = 0.0
+                        shared_context["speed_count"] = 0
+                    else:
+                        start_dt = shared_context.get("flight_start_time")
+                        if start_dt and shared_context["token"]:
+                            end_dt = datetime.now(timezone.utc)
+                            avg_spd = round(shared_context["speed_sum"] / max(1, shared_context["speed_count"]), 2)
+                            try:
+                                http_session.post(
+                                    f"{shared_context['backend_url']}/api/v1/flight-logs",
+                                    json={
+                                        "drone_id": DRONE_ID,
+                                        "start_time": start_dt.isoformat(),
+                                        "end_time": end_dt.isoformat(),
+                                        "max_altitude": round(shared_context["max_alt"], 2),
+                                        "avg_speed": avg_spd,
+                                        "distance": round(avg_spd * (end_dt - start_dt).total_seconds(), 2)
+                                    },
+                                    headers=shared_context["headers"],
+                                    timeout=1.0
+                                )
+                                queue_web_log("[GCS] Flight session saved to database.", "info")
+                            except Exception:
+                                pass
+                        shared_context["flight_start_time"] = None
                 # Custom flight mode name
                 mode_map = master.mode_mapping()
                 if mode_map:
@@ -289,9 +408,14 @@ def mavlink_reader_thread(master):
                 telemetry_data["latitude"] = round(msg.lat / 1e7, 6)
                 telemetry_data["longitude"] = round(msg.lon / 1e7, 6)
                 telemetry_data["altitude"] = round(msg.relative_alt / 1000.0, 2)  # mm ke meter
+                if shared_context.get("flight_start_time"):
+                    shared_context["max_alt"] = max(shared_context.get("max_alt", 0.0), telemetry_data["altitude"])
 
             elif msg_type == 'VFR_HUD':
                 telemetry_data["speed"] = round(msg.groundspeed, 1)
+                if shared_context.get("flight_start_time"):
+                    shared_context["speed_sum"] += telemetry_data["speed"]
+                    shared_context["speed_count"] += 1
                 # Jika altitude GPS belum valid, pakai barometric altitude dari VFR_HUD
                 if telemetry_data["altitude"] == 0.0:
                     telemetry_data["altitude"] = round(msg.alt, 2)
@@ -371,7 +495,7 @@ def mavlink_reader_thread(master):
                             f"{shared_context['backend_url']}/api/v1/telemetry",
                             json=telemetry_data,
                             headers=shared_context["headers"],
-                            timeout=0.1
+                            timeout=0.5  # ponytail: blocking POST in reader thread; queue it if VPS latency high
                         )
                         if res.status_code == 401:
                             refresh_token()
@@ -390,6 +514,7 @@ def main():
     parser.add_argument("--disarm-delay", type=int, default=0, help="Auto disarm delay in seconds (0 = disabled, default: 0)")
     args = parser.parse_args()
 
+    args.url = args.url.rstrip("/")
     shared_context["backend_url"] = args.url
 
     print("=" * 68)

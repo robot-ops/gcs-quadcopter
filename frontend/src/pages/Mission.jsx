@@ -1,8 +1,9 @@
+import { useState } from "react";
 import { useTelemetry } from "../context/TelemetryContext";
 import { MapContainer, TileLayer, Marker, Polyline, useMapEvents, useMap } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
-import { Map, Navigation, Trash2, Play, Power, HelpCircle, X } from "lucide-react";
+import { Map, Navigation, Trash2, Play, Power, HelpCircle, X, UploadCloud, CheckCircle2 } from "lucide-react";
 
 // Fix Leaflet icons with custom SVGs to bypass Vite bundle path issues and match warm theme
 const createDroneIcon = (heading) => new L.divIcon({
@@ -57,9 +58,24 @@ export default function Mission() {
       removeWaypoint,
       updateWaypointAltitude,
       clearWaypoints, 
+      uploadMissionToDrone,
       commandDrone, 
       droneState 
     } = useTelemetry();
+
+    const [isUploading, setIsUploading] = useState(false);
+    const [uploadSuccess, setUploadSuccess] = useState(false);
+
+    const handleUpload = async () => {
+        setIsUploading(true);
+        setUploadSuccess(false);
+        const res = await uploadMissionToDrone();
+        setIsUploading(false);
+        if (res) {
+            setUploadSuccess(true);
+            setTimeout(() => setUploadSuccess(false), 4000);
+        }
+    };
 
     const dronePosition = [
       currentTelemetry?.latitude || -6.2088, 
@@ -89,13 +105,21 @@ export default function Mission() {
                         Plot visual waypoints on the telemetry map to direct the simulated flight path.
                     </p>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                     <button
                         onClick={clearWaypoints}
                         className="glass-btn-secondary flex items-center gap-1.5 px-3 py-2 cursor-pointer text-xs font-semibold display-font uppercase tracking-wider"
                     >
                         <Trash2 size={14} />
                         Clear Waypoints
+                    </button>
+                    <button
+                        onClick={handleUpload}
+                        disabled={isUploading || waypoints.length === 0}
+                        className="glass-btn-secondary flex items-center gap-1.5 px-3 py-2 cursor-pointer text-xs font-semibold display-font uppercase tracking-wider border-amber-500/30 text-amber-700 hover:bg-amber-500/10 disabled:opacity-50"
+                    >
+                        {uploadSuccess ? <CheckCircle2 size={14} className="text-emerald-600" /> : <UploadCloud size={14} />}
+                        {isUploading ? "Uploading..." : uploadSuccess ? "Uploaded to Pixhawk" : "Upload to Pixhawk"}
                     </button>
                     {droneState === "DISARMED" ? (
                         <button
@@ -107,19 +131,19 @@ export default function Mission() {
                         </button>
                     ) : droneState === "ARMED" ? (
                         <button
-                            onClick={() => commandDrone("TAKEOFF")}
+                            onClick={() => commandDrone("START_MISSION")}
                             className="glass-btn flex items-center gap-1.5 px-3 py-2 cursor-pointer text-xs font-semibold display-font uppercase tracking-wider bg-emerald-500 hover:bg-emerald-600 border-emerald-500/25"
                         >
                             <Play size={14} />
-                            Launch Mission
+                            Start Auto Mission
                         </button>
                     ) : (
                         <button
-                            onClick={() => commandDrone("LAND")}
+                            onClick={() => commandDrone("RTL")}
                             className="glass-btn flex items-center gap-1.5 px-3 py-2 cursor-pointer text-xs font-semibold display-font uppercase tracking-wider bg-rose-500 hover:bg-rose-600 border-rose-500/25"
                         >
                             <Navigation size={14} />
-                            Abort / Return Land
+                            Abort / RTL
                         </button>
                     )}
                 </div>
