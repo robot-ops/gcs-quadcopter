@@ -40,7 +40,10 @@ shared_context = {
     "flight_start_time": None,
     "max_alt": 0.0,
     "speed_sum": 0.0,
-    "speed_count": 0
+    "speed_count": 0,
+    "gps_fix": 0,
+    "gps_sats": 0,
+    "gps_hdop": 99.9
 }
 
 # Queue untuk mengirim event log ke frontend lewat WebSocket
@@ -104,7 +107,8 @@ def request_message_streams(master):
             (mavutil.mavlink.MAV_DATA_STREAM_EXTRA1, 20),  # Attitude 20Hz
             (mavutil.mavlink.MAV_DATA_STREAM_POSITION, 10), # Lat, Lon, Alt 10Hz
             (mavutil.mavlink.MAV_DATA_STREAM_EXTRA2, 10),  # VFR_HUD (speed, throttle)
-            (mavutil.mavlink.MAV_DATA_STREAM_EXTENDED_STATUS, 2), # Sys Status, Battery
+            (mavutil.mavlink.MAV_DATA_STREAM_EXTENDED_STATUS, 4), # Sys Status, Battery, GPS_RAW_INT
+            (mavutil.mavlink.MAV_DATA_STREAM_RAW_SENSORS, 2), # Raw IMU / GPS sensors
             (mavutil.mavlink.MAV_DATA_STREAM_RAW_CONTROLLER, 2),
         ]
         for stream_id, rate in streams:
@@ -405,11 +409,52 @@ def mavlink_reader_thread(master):
                 telemetry_data["yaw"] = round(math.degrees(msg.yaw), 1)
 
             elif msg_type == 'GLOBAL_POSITION_INT':
-                telemetry_data["latitude"] = round(msg.lat / 1e7, 6)
-                telemetry_data["longitude"] = round(msg.lon / 1e7, 6)
+                lat_val = round(msg.lat / 1e7, 6)
+                lon_val = round(msg.lon / 1e7, 6)
+                if lat_val != 0.0 or lon_val != 0.0:
+                    telemetry_data["latitude"] = lat_val
+                    telemetry_data["longitude"] = lon_val
                 telemetry_data["altitude"] = round(msg.relative_alt / 1000.0, 2)  # mm ke meter
                 if shared_context.get("flight_start_time"):
                     shared_context["max_alt"] = max(shared_context.get("max_alt", 0.0), telemetry_data["altitude"])
+
+            elif msg_type == 'GPS_RAW_INT':
+                # Pembacaan langsung dari modul GPS fisik (u-blox M8N/M9N/Here)
+                fix_type = msg.fix_type  # 0:No GPS, 1:No Fix, 2:2D Fix, 3:3D Fix, 4:DGPS, 5:RTK
+                sats = msg.satellites_visible if msg.satellites_visible != 255 else 0
+                hdop = round(msg.eph / 100.0, 2) if getattr(msg, "eph", 65535) != 65535 else 99.9
+                raw_lat = round(msg.lat / 1e7, 6)
+                raw_lon = round(msg.lon / 1e7, 6)
+
+                # Update koordinat dari modul GPS jika EKF GLOBAL_POSITION_INT belum keluar
+                if raw_lat != 0.0 or raw_lon != 0.0:
+                    telemetry_data["latitude"] = raw_lat
+                    telemetry_data["longitude"] = raw_lon
+
+                fix_names = {
+                    0: "NO_GPS_MODULE (Cek Kabel Port GPS)",
+                    1: "NO_FIX (Mencari Satelit...)",
+                    2: "2D_FIX",
+                    3: "3D_FIX (GPS Ready)",
+                    4: "DGPS_FIX",
+                    5: "RTK_FLOAT",
+                    6: "RTK_FIXED"
+                }
+                prev_fix = shared_context.get("gps_fix", -1)
+                prev_sats = shared_context.get("gps_sats", -1)
+                shared_context["gps_fix"] = fix_type
+                shared_context["gps_sats"] = sats
+                shared_context["gps_hdop"] = hdop
+
+                # Kirim log ke Web GCS setiap kali status fix berubah atau jumlah satelit naik/turun
+                if fix_type != prev_fix or abs(sats - prev_sats) >= 2:
+                    fix_label = fix_names.get(fix_type, f"FIX_{fix_type}")
+                    log_level = "info" if fix_type >= 3 else ("warn" if fix_type == 0 else "system")
+                    print(f"\n[GPS MODULE] Status: {fix_label} | Satelit: {sats} | HDOP: {hdop} | Lat: {raw_lat}, Lon: {raw_lon}")
+                    queue_web_log(
+                        f"[GPS] {fix_label} | Satellites: {sats} | HDOP: {hdop} ({raw_lat:.6f}, {raw_lon:.6f})",
+                        log_level
+                    )
 
             elif msg_type == 'VFR_HUD':
                 telemetry_data["speed"] = round(msg.groundspeed, 1)
@@ -475,12 +520,15 @@ def mavlink_reader_thread(master):
             if now - last_disp >= 0.1:
                 arm_str = "ARMED" if shared_context["armed"] else "DISARMED"
                 mode_str = shared_context["flight_mode"]
+                fix_short = {0: "NoGPS", 1: "NoFix", 2: "2DFix", 3: "3DFix", 4: "DGPS", 5: "RTK"}.get(shared_context.get("gps_fix", 0), "GPS?")
+                sats_num = shared_context.get("gps_sats", 0)
                 print(
                     f"\r[{arm_str:8s}|{mode_str:9s}] "
                     f"R:{telemetry_data['roll']:5.1f}° P:{telemetry_data['pitch']:5.1f}° Y:{telemetry_data['yaw']:5.1f}° | "
+                    f"GPS:{fix_short}({sats_num}sat) {telemetry_data['latitude']:.5f},{telemetry_data['longitude']:.5f} | "
                     f"Alt:{telemetry_data['altitude']:5.1f}m Spd:{telemetry_data['speed']:4.1f}m/s | "
                     f"Bat:{telemetry_data['battery']:3.0f}% | "
-                    f"RSSI:{telemetry_data['rssi']}dBm SNR:{telemetry_data['snr']}dB  ",
+                    f"RSSI:{telemetry_data['rssi']}dBm  ",
                     end="", flush=True
                 )
                 last_disp = now
