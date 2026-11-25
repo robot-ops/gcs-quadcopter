@@ -20,11 +20,11 @@ import {
 // Home station coordinate constant
 const HOME_COORDINATE = [-6.2088, 106.8456];
 
-// Map theme URLs
+// Map theme URLs (Tile server publik tanpa API Key — OSM, Esri Satellite, OpenTopo)
 const MAP_TILE_THEMES = {
-  light: "https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png",
-  dark: "https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png",
-  streets: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+  light: "https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png",
+  dark: "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}",
+  streets: "https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png"
 };
 
 // Custom Division Icon generators
@@ -212,7 +212,7 @@ export default function MapTracking() {
               mapTheme === "light" ? "bg-amber-500 text-white" : "text-stone-600 hover:bg-stone-100"
             }`}
           >
-            Light
+            Streets
           </button>
           <button
             onClick={() => setMapTheme("dark")}
@@ -220,7 +220,7 @@ export default function MapTracking() {
               mapTheme === "dark" ? "bg-amber-500 text-white" : "text-stone-600 hover:bg-stone-100"
             }`}
           >
-            Dark
+            Satellite
           </button>
           <button
             onClick={() => setMapTheme("streets")}
@@ -228,7 +228,7 @@ export default function MapTracking() {
               mapTheme === "streets" ? "bg-amber-500 text-white" : "text-stone-600 hover:bg-stone-100"
             }`}
           >
-            Streets
+            Topo
           </button>
         </div>
 
