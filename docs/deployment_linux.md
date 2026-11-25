@@ -127,3 +127,31 @@ sudo apt install -y python3-pip python3-venv nodejs npm nginx git
    sudo systemctl restart nginx
    ```
 4. Sistem sekarang online. Buka browser dan akses alamat IP server Anda (`http://<ip_address_server>`) untuk mengoperasikan GCS Aero-Link.
+
+---
+
+## 5. Otomatisasi CI/CD GitHub Actions ke VPS
+
+Proyek ini dilengkapi pipeline CI/CD di `.github/workflows/deploy.yml` yang otomatis mem-build frontend dan meng-update VPS setiap kali ada `git push` ke branch `main`.
+
+### 5.1. Konfigurasi GitHub Secrets
+Tambahkan Repository Secrets berikut di **GitHub Settings -> Secrets and variables -> Actions**:
+* `VPS_HOST`: Alamat IP publik atau domain VPS.
+* `VPS_USERNAME`: Username SSH (misal `root`).
+* `VPS_SSH_KEY`: Private SSH Key untuk autentikasi ke VPS.
+* `VPS_PORT`: Port SSH (default `22`).
+
+### 5.2. Konfigurasi Git Safe Directory di VPS
+Jika service `aerolink-backend` dijalankan oleh user `www-data` sedangkan CI/CD login sebagai `root`, daftarkan direktori proyek sebagai safe directory di VPS agar perintah `git fetch` pada CI/CD tidak tertolak:
+```bash
+git config --global --add safe.directory /var/www/uav-quadcopter
+```
+
+### 5.3. Verifikasi Status Deployment di VPS
+Untuk memeriksa status aplikasi dan versi commit aktif di VPS:
+```bash
+cd /var/www/uav-quadcopter
+git log -n 3 --oneline
+sudo systemctl status aerolink-backend
+sudo systemctl status nginx
+```

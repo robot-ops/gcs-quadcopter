@@ -28,6 +28,17 @@ Digunakan untuk membaca data navigasi instrumen utama penerbangan.
 Digunakan untuk memantau status daya kelistrikan utama sistem wahana.
 * **`battery_remaining`**: Kapasitas sisa baterai (persentase, 0-100%).
 
+### 1.5. `RADIO_STATUS` (Message ID: #109)
+Digunakan untuk membaca kualitas tautan radio frekuensi langsung dari modul telemetry SiK 433MHz.
+* **`rssi`**: Indikator kekuatan sinyal radio yang dikonversi ke satuan dBm (`(raw / 1.9) - 127`).
+* **`noise`**: Tingkat derau sinyal untuk menghitung nilai `SNR` (Signal-to-Noise Ratio) dalam satuan dB.
+
+### 1.6. `HEARTBEAT` (#0), `COMMAND_ACK` (#77), `STATUSTEXT` (#253), & `MISSION_ACK` (#47)
+Digunakan oleh `drone/pixhawk_bridge.py` untuk komunikasi dua arah:
+* **`HEARTBEAT`**: Mendeteksi status motor (`ARMED` / `DISARMED`) dan perubahan mode terbang (`STABILIZE`, `ALT_HOLD`, `LOITER`, `AUTO`, `RTL`, `LAND`).
+* **`COMMAND_ACK` & `STATUSTEXT`**: Meneruskan pesan status PreArm check, kalibrasi sensor, dan hasil eksekusi perintah langsung ke Live Event Terminal di Web GCS.
+* **`MISSION_REQUEST_INT` & `MISSION_ACK`**: Menangani protokol unggah daftar waypoint misi secara asynchronous dari peta Web GCS ke EEPROM Pixhawk.
+
 ---
 
 ## 2. Topologi Integrasi Perangkat Keras Fisik
@@ -75,3 +86,14 @@ if msg:
     yaw_deg = math.degrees(msg.yaw)
 ```
 Data yang diekstrak kemudian dikirim melalui request HTTP ke API FastAPI untuk diperbarui secara real-time di UI.
+
+### 3.1. Menjalankan Bridge Hardware Pixhawk 2.4.8 (433MHz)
+Untuk wahana fisik Pixhawk 2.4.8 dengan modul radio telemetri 433MHz:
+```bash
+python drone/pixhawk_bridge.py --port COM8 --baud 57600 --url http://127.0.0.1:8000
+```
+Argumen yang didukung:
+* `--port`: Port serial modul ground radio (misal `COM8` di Windows atau `/dev/ttyUSB0` di Linux).
+* `--baud`: Baud rate radio telemetri (default: `57600`).
+* `--url`: URL server backend FastAPI (lokal `http://127.0.0.1:8000` atau URL/IP VPS produksi).
+* `--disarm-delay`: Durasi auto-disarm Pixhawk dalam detik (`0` untuk menonaktifkan auto-disarm saat pengujian darat).

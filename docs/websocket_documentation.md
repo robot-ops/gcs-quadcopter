@@ -62,10 +62,43 @@ Dikirim oleh antarmuka GCS ketika operator menekan tombol aksi penerbangan. Serv
   }
   ```
 * **Aksi Perintah yang Didukung (`command`)**:
-  * `ARM`: Menghidupkan motor drone.
+  * `ARM`: Menghidupkan motor drone (mendukung Force Arm MAVLink).
   * `DISARM`: Mematikan motor drone secara paksa.
-  * `TAKEOFF`: Perintah terbang lepas landas.
+  * `TAKEOFF`: Mengubah mode ke `GUIDED` dan mengirim perintah lepas landas otomatis.
   * `LAND`: Perintah mendarat otomatis di koordinat aktif.
+  * `RTL` / `RTH`: Return to Launch (kembali ke titik keberangkatan).
+  * `START_MISSION` / `AUTO`: Memulai misi terbang otonom mengikuti daftar waypoint di Pixhawk.
+  * `CALIBRATE_GYRO`: Memicu kalibrasi gyroscope dan barometer Pixhawk.
+  * `STABILIZE` / `ALT_HOLD` / `LOITER` / `POSHOLD` / `GUIDED`: Mengganti flight mode ArduCopter secara langsung.
+
+#### Event: `"upload_mission"`
+Dikirim oleh Web GCS ketika operator menekan tombol **Upload Mission** pada Mission Planner untuk mengunggah titik-titik waypoint ke EEPROM Pixhawk.
+* **Payload JSON**:
+  ```json
+  {
+    "event": "upload_mission",
+    "data": {
+      "waypoints": [
+        { "lat": -6.2088, "lng": 106.8456, "alt": 15.0 },
+        { "lat": -6.2092, "lng": 106.8461, "alt": 20.0 }
+      ]
+    }
+  }
+  ```
+
+#### Event: `"event_log"`
+Dikirim oleh `pixhawk_bridge.py` melalui WebSocket untuk menampilkan pesan log sistem (`STATUSTEXT`, `COMMAND_ACK`, perubahan mode terbang, dan status upload waypoint) secara real-time di Live Event Terminal dashboard.
+* **Payload JSON**:
+  ```json
+  {
+    "event": "event_log",
+    "data": {
+      "text": "[PIXHAWK ACK] ARM/DISARM -> ACCEPTED (Berhasil!)",
+      "type": "info",
+      "drone_state": "ARMED"
+    }
+  }
+  ```
 
 ---
 

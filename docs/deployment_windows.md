@@ -18,7 +18,7 @@ Sebelum memulai, pastikan perangkat lunak berikut telah terinstal pada Windows A
 ### Langkah 2.1. Clone Repositori & Buka Direktori
 Buka **Command Prompt (CMD)** atau **PowerShell** dan masuk ke direktori backend:
 ```powershell
-cd d:\Redesma\Dummy\uav-quadcopter\backend
+cd backend
 ```
 
 ### Langkah 2.2. Membuat Virtual Environment Python
@@ -63,7 +63,7 @@ uvicorn main:app --reload --host 127.0.0.1 --port 8000
 ### Langkah 3.1. Masuk ke Direktori Frontend
 Buka terminal baru dan masuk ke folder `frontend`:
 ```powershell
-cd d:\Redesma\Dummy\uav-quadcopter\frontend
+cd frontend
 ```
 
 ### Langkah 3.2. Menginstal Modul NPM
